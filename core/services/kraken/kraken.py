@@ -13,9 +13,8 @@ from fastapi import status
 from loguru import logger
 
 from exceptions import ContainerDoesNotExist, ExtensionNotFound
-from settings import Extension, SettingsV1
+from settings import Extension, SettingsV2
 
-REPO_URL = "https://bluerobotics.github.io/BlueOS-Extensions-Repository/manifest.json"
 SERVICE_NAME = "Kraken"
 
 
@@ -26,7 +25,7 @@ class Kraken:
         self.should_run = True
         self.deleting_in_progress = False
         self._client: Optional[aiodocker.Docker] = None
-        self.manifest_cache: List[Dict[str, Any]] = []
+        self.manifest_cache: Dict[str, Dict[str, Any]] = {}
 
     @property
     def client(self) -> aiodocker.Docker:
@@ -80,17 +79,30 @@ class Kraken:
             await self.start_extension(extension)
 
     def load_settings(self) -> None:
-        self.manager = Manager(SERVICE_NAME, SettingsV1)
+        self.manager = Manager(SERVICE_NAME, SettingsV2)
         self.settings = self.manager.settings
 
-    async def fetch_manifest(self) -> Any:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(REPO_URL) as resp:
-                if resp.status != 200:
-                    print(f"Error status {resp.status}")
-                    raise RuntimeError(f"Could not fetch manifest file: response status : {resp.status}")
-                self.manifest_cache = await resp.json()
-                return await resp.json(content_type=None)
+    async def fetch_manifest(self, session: aiohttp.ClientSession, url: str) -> Any:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                print(f"Error status {resp.status}")
+                raise RuntimeError(f"Could not fetch manifest file: response status : {resp.status}")
+            return await resp.json(content_type=None)
+
+    async def fetch_manifests(self) -> Any:
+        urls = self.settings.manifest_urls
+        responses = []
+        try:
+            async with aiohttp.ClientSession() as session:
+                responses.extend(await asyncio.gather(*[self.fetch_manifest(session, url) for url in urls]))
+        except Exception as error:
+            logger.error(f"Unable to fetch manifest. {error}")
+
+        for response in responses:
+            dictionary = {extension["docker"]: extension for extension in response}
+            for key, value in dictionary.items():
+                self.manifest_cache[key] = value
+        return list(self.manifest_cache.values())
 
     async def get_configured_extensions(self) -> List[Extension]:
         return cast(List[Extension], self.settings.extensions)
@@ -104,6 +116,7 @@ class Kraken:
         except Exception as e:
             # this will fail if the container is not installed, we don't mind it
             logger.info(e)
+
         new_extension = Extension(
             identifier=extension.identifier,
             name=extension.name,
@@ -112,6 +125,7 @@ class Kraken:
             permissions=extension.permissions,
             enabled=extension.enabled,
             user_permissions=extension.user_permissions,
+            id=extension.id,
         )
         self.settings.extensions.append(new_extension)
         self.manager.save()
@@ -165,7 +179,7 @@ class Kraken:
         if not extension:
             raise RuntimeError(f"Extension with identifier {identifier} not found!")
         # TODO: plug dependency-checking in here
-        version_manifests = [entry for entry in self.manifest_cache if entry["identifier"] == identifier]
+        version_manifests = [entry for entry in self.manifest_cache.values() if entry["identifier"] == identifier]
         if not version_manifests:
             raise RuntimeError(f"identifier not found in manifest: {identifier}")
         manifest = version_manifests[0]
@@ -183,6 +197,7 @@ class Kraken:
             enabled=True,
             # TODO: handle user permissions on updates
             user_permissions="",
+            id=extension.id,
         )
 
         # Remove older entry if it exists

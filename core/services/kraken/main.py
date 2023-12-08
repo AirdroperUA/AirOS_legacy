@@ -2,7 +2,7 @@
 import argparse
 import asyncio
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 
 from commonwealth.utils.apis import GenericErrorHandlingRoute
 from commonwealth.utils.general import limit_ram_usage
@@ -25,6 +25,7 @@ class Extension(BaseModel):
     enabled: bool
     identifier: str
     user_permissions: str
+    id: Optional[str] = None
 
     def is_valid(self) -> bool:
         return all([self.name, self.docker, self.tag, any([self.permissions, self.user_permissions]), self.identifier])
@@ -49,8 +50,8 @@ logger.info("Releasing the Kraken!")
 
 @app.get("/extensions_manifest", status_code=status.HTTP_200_OK)
 @version(1, 0)
-async def fetch_manifest() -> Any:
-    return await kraken.fetch_manifest()
+async def fetch_manifests() -> Any:
+    return await kraken.fetch_manifests()
 
 
 @app.get("/installed_extensions", status_code=status.HTTP_200_OK)
@@ -66,6 +67,7 @@ async def get_installed_extensions() -> Any:
             permissions=extension.permissions,
             enabled=extension.enabled,
             user_permissions=extension.user_permissions,
+            id=extension.id,
         )
         for extension in extensions
     ]

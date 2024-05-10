@@ -47,7 +47,7 @@ export default Vue.extend({
       }
       return helper.services.filter(
         (service) => service?.metadata?.sanitized_name === this.$route.params.name,
-      )[0]?.port ?? null
+      )[0]?.port ?? undefined
     },
     service_path(): string {
       return `${window.location.protocol}//${window.location.hostname}:${this.detected_port}`

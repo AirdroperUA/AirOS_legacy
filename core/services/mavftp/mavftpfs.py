@@ -4,7 +4,7 @@ from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from mavftp import FTPUser
 from pymavlink import mavutil
 import os
-
+import time
 from loguru import logger
 
 import errno
@@ -14,7 +14,18 @@ from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 class MAVFTP(LoggingMixIn, Operations):
     def __init__(self, mav):
         self.mav = mav
-        self.files = {"/": {"st_mode": (0o40755), "st_size": 0}}
+        self.files = {
+            "/": {
+                "st_mode": 0o40755,   # Directory with rwxr-xr-x permissions
+                "st_nlink": 2,        # Self-link and parent link
+                "st_size": 0,         # Size 0 for simplicity
+                "st_ctime": time.time(),  # Current time
+                "st_mtime": time.time(),  # Current time
+                "st_atime": time.time(),  # Current time
+                # "st_uid": os.getuid(),    # Owner's user ID
+                # "st_gid": os.getgid()     # Owner's group ID
+            }
+        }
         self.ftp = FTPUser(mav)
 
     # def chmod(self, path, mode):
@@ -42,7 +53,7 @@ class MAVFTP(LoggingMixIn, Operations):
             logger.debug(f"cache miss, asking for {parent_dir}")
             self.readdir(parent_dir)
             if path not in self.files:
-                return {}
+                raise FuseOSError(errno.ENOENT)
             return self.files[path]
 
     def read(self, path, size, offset, fh):
@@ -59,35 +70,68 @@ class MAVFTP(LoggingMixIn, Operations):
             if item["name"] == "." or item["name"] == "..":
                 continue
             if not item["is_dir"]:
-                new_item = {"st_mode": (0o100666), "st_size": item["size_b"]}
+                new_item = {"st_mode": (0o100444), "st_size": item["size_b"]}
             else:
-                new_item = {"st_mode": (0o40755), "st_size": 0}
+                new_item = {
+                  "st_mode": (0o46766),                 
+                  "st_nlink": 2,        # Self-link and parent link
+                  "st_size": 0,         # Size 0 for simplicity
+                  "st_ctime": time.time(),  # Current time
+                  "st_mtime": time.time(),  # Current time
+                  "st_atime": time.time(),  # Current time
+                }
             ret[item["name"]] = new_item
             new_path = path if path.endswith("/") else path + "/"
             self.files[new_path + item["name"]] = new_item
-        self.files[path] = {"st_mode": (0o40755), "st_size": 0}
+        self.files[path] = {"st_mode": (0o46766), "st_size": 0}
         return ret
 
     # Override methods that modify filesystem state to return read-only error
+    
+    
+    def create(self, path, mode, fi=None):
+        '''
+        When raw_fi is False (default case), fi is None and create should
+        return a numerical file handle.
+
+        When raw_fi is True the file handle should be set directly by create
+        and return 0.
+        '''
+        logger.error(f"Fuse: create {path}")
+        self.ftp.create_file(path)
+        raise FuseOSError(errno.EROFS)
+
+
+    def mknod(self, path):
+        logger.error(f"Fuse: lookup {path}")
+        raise FuseOSError(errno.ENOENT)
+
     def write(self, path, data, offset, fh):
+        logger.error(f"Fuse: write {path}")
         raise FuseOSError(errno.EROFS)
 
     def mkdir(self, path, mode):
+        logger.error(f"Fuse: mkdir {path}")
         raise FuseOSError(errno.EROFS)
 
     def rmdir(self, path):
+        logger.error(f"Fuse: rmdir {path}")
         raise FuseOSError(errno.EROFS)
 
     def unlink(self, path):
+        logger.error(f"Fuse: unlink {path}")
         raise FuseOSError(errno.EROFS)
 
     def rename(self, old, new):
+        logger.error(f"Fuse: rename {old} -> {new}")
         raise FuseOSError(errno.EROFS)
 
     def chmod(self, path, mode):
+        logger.error(f"Fuse: chmod {path}")
         raise FuseOSError(errno.EROFS)
 
     def chown(self, path, uid, gid):
+        logger.error(f"Fuse: chown {path}")
         raise FuseOSError(errno.EROFS)
 
 
@@ -115,6 +159,8 @@ if __name__ == "__main__":
         MAVFTP(mavutil.mavlink_connection(args.mavlink)),
         args.mountpoint,
         foreground=True,
+        ro=False,
         nothreads=True,
         allow_other=True,
+        # debug=True,
     )

@@ -162,6 +162,7 @@ class FTPModule:
         self.list_result = None
         self.list_temp_result = None
         self.get_result = None
+        self.create_result = None
 
     def send(self, op):
         """send a request"""
@@ -513,6 +514,13 @@ class FTPModule:
             print("Read failed with %u gaps" % len(self.read_gaps), str(op))
             self.terminate_session()
         self.check_read_send()
+
+    def cmd_create(self, path):
+        self.op_start = time.time()
+        enc_fname = bytearray(path, "ascii")
+        self.fh = None
+        op = FTP_OP(self.seq, self.session, OP_CreateFile, len(enc_fname), 0, 0, 0, enc_fname)
+        self.send(op)
 
     def cmd_put(self, args, fh=None, callback=None, progress_callback=None):
         """put file"""
@@ -969,6 +977,10 @@ class FTPUser(FTPModule):
 
     def read_sector(self, path, offset, size):
         return self.request("get", (path, "/tmp/potato", offset, size))
+    
+    def create_file(self, path):
+        print(path)
+        return self.request("create", (path))
 
     def params(self, *args, **kwargs):
         """get a file, and parse as params."""

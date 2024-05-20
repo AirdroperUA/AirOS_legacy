@@ -5,6 +5,8 @@ from mavftp import FTPUser
 from pymavlink import mavutil
 import os
 
+from loguru import logger
+
 import errno
 from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 
@@ -32,11 +34,12 @@ class MAVFTP(LoggingMixIn, Operations):
     #     self.client.close()
 
     def getattr(self, path, fh=None):
+        logger.info(f"Fuse: getattr {path}")
         if path in self.files:
             return self.files[path]
         else:
             parent_dir = ("/" + "/".join(path.split("/")[:-1])).replace("//", "/")
-            print(f"cache miss, asking for {parent_dir}")
+            logger.debug(f"cache miss, asking for {parent_dir}")
             self.readdir(parent_dir)
             if path not in self.files:
                 return {}
@@ -47,6 +50,7 @@ class MAVFTP(LoggingMixIn, Operations):
         return buf
 
     def readdir(self, path, fh=0):
+        logger.info(f"Fuse: readdir {path}")  
         dir = self.ftp.list(path)
         if dir is None or len(dir) == 0:
             return []

@@ -949,7 +949,6 @@ class FTPUser(FTPModule):
                         timeout=msg_timeout,
                     )
                     if m is None:
-                        print("no message received... still listening...")
                         continue
                     start = time.time()
                     self.mavlink_packet(m)
@@ -959,10 +958,11 @@ class FTPUser(FTPModule):
                 time.sleep(0.0001)
             if self.result_available(cmd):
                 break
+        print("done")
         return self.latest_result(cmd)
 
     def list(self, path, *args, **kwargs):
-        return self.request("list", (path,), *args, **kwargs)
+        return self.request("list", (path,), max_retries=1, *args, **kwargs)
 
     def get(self, filepath, save_as, *args, **kwargs):
         return self.request("get", (filepath, save_as), *args, **kwargs)

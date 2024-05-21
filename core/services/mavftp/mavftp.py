@@ -6,6 +6,8 @@
 # pylint: skip-file
 # type: ignore
 
+from ftp_op import *
+from ftp_put import PutHandler
 import io
 import time, os, sys
 import struct
@@ -13,26 +15,7 @@ import random
 from pymavlink import mavutil
 from pathlib import Path
 from io import BytesIO as SIO
-
-# opcodes
-OP_None = 0
-OP_TerminateSession = 1
-OP_ResetSessions = 2
-OP_ListDirectory = 3
-OP_OpenFileRO = 4
-OP_ReadFile = 5
-OP_CreateFile = 6
-OP_WriteFile = 7
-OP_RemoveFile = 8
-OP_CreateDirectory = 9
-OP_RemoveDirectory = 10
-OP_OpenFileWO = 11
-OP_TruncateFile = 12
-OP_Rename = 13
-OP_CalcFileCRC32 = 14
-OP_BurstReadFile = 15
-OP_Ack = 128
-OP_Nack = 129
+from loguru import logger
 
 # error codes
 ERR_None = 0
@@ -50,67 +33,82 @@ ERR_FileNotFound = 10
 HDR_Len = 12
 MAX_Payload = 239
 
+class ListHandler:
+    def __init__(self, ftp):
+        self.list_result = None
+        self.list_temp_result = None
+        self.ftp = ftp
+        self.total_size = 0
+        self.dir_offset = 0
 
-class FTP_OP:
-    def __init__(self, seq, session, opcode, size, req_opcode, burst_complete, offset, payload):
-        self.seq = seq
-        self.session = session
-        self.opcode = opcode
-        self.size = size
-        self.req_opcode = req_opcode
-        self.burst_complete = burst_complete
-        self.offset = offset
-        self.payload = payload
+    def list(self, args):
 
-    def pack(self):
-        """pack message"""
-        ret = struct.pack(
-            "<HBBBBBBI",
-            self.seq,
-            self.session,
-            self.opcode,
-            self.size,
-            self.req_opcode,
-            self.burst_complete,
+        self.list_temp_result = []
+        self.list_result = None
+        self.ftp.list_result = None
+        if len(args) > 0:
+            dname = args[0]
+        else:
+            dname = "/"
+        logger.info("Listing %s" % dname)
+        enc_dname = bytearray(dname, "ascii")
+        self.total_size = 0
+        self.dir_offset = 0
+        op = FTP_OP(
+            self.ftp.seq,
+            self.ftp.session,
+            OP_ListDirectory,
+            len(enc_dname),
             0,
-            self.offset,
+            0,
+            self.dir_offset,
+            enc_dname,
         )
-        if self.payload is not None:
-            ret += self.payload
-        ret = bytearray(ret)
-        return ret
+        self.ftp.send(op)
 
-    def __str__(self):
-        plen = 0
-        if self.payload is not None:
-            plen = len(self.payload)
-        ret = "OP seq:%u sess:%u opcode:%d req_opcode:%u size:%u bc:%u ofs:%u plen=%u" % (
-            self.seq,
-            self.session,
-            self.opcode,
-            self.req_opcode,
-            self.size,
-            self.burst_complete,
-            self.offset,
-            plen,
-        )
-        if plen > 0:
-            ret += " [%u]" % self.payload[0]
-        return ret
+    def handle_list_reply(self, op, m):
+        output = []
+        if op.opcode == OP_Ack:
+            dentries = sorted(op.payload.split(b"\x00"))
+            for d in dentries:
+                if len(d) == 0:
+                    continue
+                self.dir_offset += 1
+                try:
+                    d = str(d, "ascii")
+                except Exception:
+                    continue
+                if d[0] == "D":
+                    # output += "D %s\n" % d[1:]
+                    output.append({"name": d[1:], "is_dir": True, "size_b": 0})
+                elif d[0] == "F":
+                    (name, size) = d[1:].split("\t")
+                    size = int(size)
+                    self.total_size += size
+                    output.append({"name": name, "size_b": size, "is_dir": False})
+                else:
+                    pass
+            # ask for more, should we just create a new op?
+            more = self.ftp.last_op
+            more.offset = self.dir_offset
+            self.ftp.send(more)
+        elif op.opcode == OP_Nack and len(op.payload) == 1 and op.payload[0] == ERR_EndOfFile:
+            self.ftp.list_result = self.list_temp_result
+            self.total_size = 0
+
+        self.list_temp_result.extend(output)
+        return output
 
 
-class WriteQueue:
-    def __init__(self, ofs, size):
-        self.ofs = ofs
-        self.size = size
-        self.last_send = 0
-
+class GetHandler:
+    def __init__(self, ftp):
+        self.ftp = ftp
 
 class FTPModule:
     def __init__(self, mav):
 
         self.ftp_settings = {
-            "debug": 1,
+            "debug": 2,
             "pkt_loss_tx": 0,
             "pkt_loss_rx": 0,
             "max_backlog": 5,
@@ -119,7 +117,9 @@ class FTPModule:
             "write_qsize": 5,
             "retry_time": 0.5,
         }
-
+        self.list_handler = ListHandler(self)
+        self.put_handler = PutHandler(self)
+        self.get_handler = GetHandler(self)
         self.seq = 0
         self.session = 0
         self.network = 0
@@ -140,7 +140,6 @@ class FTPModule:
         self.last_read = None
         self.last_burst_read = None
         self.op_start = None
-        self.dir_offset = 0
         self.last_op_time = time.time()
         self.rtt = 0.5
         self.reached_eof = False
@@ -158,11 +157,11 @@ class FTPModule:
         self.mav = mav
         self.target_system = 0
         self.target_component = 0
-
-        self.list_result = None
-        self.list_temp_result = None
         self.get_result = None
+        self.put2_result = None
         self.create_result = None
+        self.open_wo_result = None
+        self.list_result = None
 
     def send(self, op):
         """send a request"""
@@ -181,6 +180,7 @@ class FTPModule:
 
     def terminate_session(self):
         """terminate current session"""
+        logger.info("session terminated")
         self.send(FTP_OP(self.seq, self.session, OP_TerminateSession, 0, 0, 0, 0, None))
         self.fh = None
         self.filename = None
@@ -210,61 +210,11 @@ class FTPModule:
 
     def cmd_list(self, args):
         """list files"""
-        self.list_temp_result = []
-        self.list_result = None
-        if len(args) > 0:
-            dname = args[0]
-        else:
-            dname = "/"
-        print("Listing %s" % dname)
-        enc_dname = bytearray(dname, "ascii")
-        self.total_size = 0
-        self.dir_offset = 0
-        op = FTP_OP(
-            self.seq,
-            self.session,
-            OP_ListDirectory,
-            len(enc_dname),
-            0,
-            0,
-            self.dir_offset,
-            enc_dname,
-        )
-        self.send(op)
+        self.list_handler.list(args)
 
     def handle_list_reply(self, op, m):
         """handle OP_ListDirectory reply"""
-        output = []
-        if op.opcode == OP_Ack:
-            dentries = sorted(op.payload.split(b"\x00"))
-            for d in dentries:
-                if len(d) == 0:
-                    continue
-                self.dir_offset += 1
-                try:
-                    d = str(d, "ascii")
-                except Exception:
-                    continue
-                if d[0] == "D":
-                    # output += "D %s\n" % d[1:]
-                    output.append({"name": d[1:], "is_dir": True, "size_b": 0})
-                elif d[0] == "F":
-                    (name, size) = d[1:].split("\t")
-                    size = int(size)
-                    self.total_size += size
-                    output.append({"name": name, "size_b": size, "is_dir": False})
-                else:
-                    pass
-            # ask for more
-            more = self.last_op
-            more.offset = self.dir_offset
-            self.send(more)
-        elif op.opcode == OP_Nack and len(op.payload) == 1 and op.payload[0] == ERR_EndOfFile:
-            self.list_result = self.list_temp_result
-            self.total_size = 0
-
-        self.list_temp_result.extend(output)
-        return output
+        self.list_handler.handle_list_reply(op, m)
 
     def cmd_get(self, args, callback=None, callback_progress=None):
         """get file"""
@@ -326,6 +276,13 @@ class FTPModule:
             if self.callback is None or self.ftp_settings["debug"] > 0:
                 print("ftp open failed")
             self.terminate_session()
+
+
+    def handle_open_WO_reply(self, op, m):
+        """handle OP_OpenFileRO reply"""
+        if op.opcode == OP_Ack:
+            self.open_wo_result = True
+            
 
     def check_read_finished(self):
         """check if download has completed"""
@@ -515,12 +472,23 @@ class FTPModule:
             self.terminate_session()
         self.check_read_send()
 
+    def cmd_open_wo(self, path):
+        enc_fname = bytearray(path, "ascii")
+        op = FTP_OP(self.seq, self.session, OP_OpenFileWO, len(enc_fname), 0, 0, 0, enc_fname)
+        self.send(op)
+
     def cmd_create(self, path):
+        self.create_result = False
         self.op_start = time.time()
         enc_fname = bytearray(path, "ascii")
         self.fh = None
         op = FTP_OP(self.seq, self.session, OP_CreateFile, len(enc_fname), 0, 0, 0, enc_fname)
         self.send(op)
+
+    def cmd_put2(self, params):
+        logger.info(f"FTP: cmd_put2 {params}")
+        file, offset, data, fh = params
+        return self.put_handler.send_data(file, offset, data, fh)
 
     def cmd_put(self, args, fh=None, callback=None, progress_callback=None):
         """put file"""
@@ -586,20 +554,27 @@ class FTPModule:
 
     def handle_create_file_reply(self, op, m):
         """handle OP_CreateFile reply"""
-        if self.fh is None:
+        if self.fh is None and  not self.put_handler.in_progress:
+            logger.info("terminating session1")
             self.terminate_session()
             return
         if op.opcode == OP_Ack:
+            self.create_result = True
             self.send_more_writes()
         else:
-            print("Create failed")
+            logger.info("create failed")
+            logger.info("terminating session")
             self.terminate_session()
 
     def send_more_writes(self):
         """send some more writes"""
+        if not self.put_handler.done:
+            self.put_handler.process()
+            return
         if len(self.write_list) == 0:
             # all done
             self.put_finished(self.write_file_size)
+            logger.info("no more writes to write, terminating")
             self.terminate_session()
             return
 
@@ -634,8 +609,10 @@ class FTPModule:
             self.write_last_send = now
 
     def handle_write_reply(self, op, m):
+        self.put_handler.on_reply(op, m)
         """handle OP_WriteFile reply"""
         if self.fh is None:
+            logger.info("terminating session3")
             self.terminate_session()
             return
         if op.opcode != OP_Ack:
@@ -761,6 +738,7 @@ class FTPModule:
 
     def cmd_cancel(self):
         """cancel any pending op"""
+        logger.info("terminating session5")
         self.terminate_session()
 
     def cmd_status(self):
@@ -807,19 +785,23 @@ class FTPModule:
                     if self.ftp_settings["debug"] > 1:
                         print("FTP: dropping packet RX")
                     return
-
+            if op.opcode == OP_Nack:
+                code = op.payload[0]
+                logger.error(f"FTP_ERROR: {ftp_errors[code]}")
             if op.req_opcode == self.last_op.opcode and op.seq == (self.last_op.seq + 1) % 256:
                 self.rtt = max(min(self.rtt, dt), 0.01)
             if op.req_opcode == OP_ListDirectory:
                 self.handle_list_reply(op, m)
             elif op.req_opcode == OP_OpenFileRO:
                 self.handle_open_RO_reply(op, m)
+            elif op.req_opcode == OP_OpenFileWO:
+                self.handle_open_WO_reply(op, m)
             elif op.req_opcode == OP_BurstReadFile:
                 self.handle_burst_read(op, m)
             elif op.req_opcode == OP_TerminateSession:
                 pass
             elif op.req_opcode == OP_CreateFile:
-                self.handle_create_file_reply(op, m)
+                self.handle_open_WO_reply(op, m)
             elif op.req_opcode == OP_WriteFile:
                 self.handle_write_reply(op, m)
             elif op.req_opcode in [OP_RemoveFile, OP_RemoveDirectory]:
@@ -833,7 +815,7 @@ class FTPModule:
             elif op.req_opcode == OP_CalcFileCRC32:
                 self.handle_crc_reply(op, m)
             else:
-                print("FTP Unknown %s" % str(op))
+                logger.error("FTP Unknown %s" % str(op))
 
     def send_gap_read(self, g):
         """send a read for a gap"""
@@ -888,6 +870,7 @@ class FTPModule:
             if self.open_retries > 2:
                 # fail the get
                 self.op_start = None
+                logger.info("terminating session6")
                 self.terminate_session()
                 return
             if self.ftp_settings["debug"] > 0:
@@ -931,7 +914,7 @@ class FTPModule:
         # see if we can fill gaps
         self.check_read_send()
 
-        if self.write_list is not None:
+        if not self.put_handler.done:
             self.send_more_writes()
 
 
@@ -981,6 +964,16 @@ class FTPUser(FTPModule):
     def create_file(self, path):
         print(path)
         return self.request("create", (path))
+    
+    def open_wo(self, path):
+        self.put_handler.start()
+        logger.info(f"opening {path} write-only")
+        session = self.request("open_wo", path)
+        logger.info(f"session = {session}")
+        return session
+    
+    def write_file(self, file, offset, data, fh):
+        return self.request("put2", (file, offset, data, fh))
 
     def params(self, *args, **kwargs):
         """get a file, and parse as params."""

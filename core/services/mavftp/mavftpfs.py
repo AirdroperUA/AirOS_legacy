@@ -87,9 +87,17 @@ class MAVFTP(LoggingMixIn, Operations):
         return ret
 
     # Override methods that modify filesystem state to return read-only error
+
+    def ensure_file_exists(self, path):
+        logger.info(f"making sure {path} exists...")
+        try:
+            self.getattr(path)
+        except FuseOSError as e:
+            logger.info(f"{path} didn't exist({e}). creating it...")
+            self.create(path)
+
     
-    
-    def create(self, path, mode, fi=None):
+    def create(self, path, fi=None):
         '''
         When raw_fi is False (default case), fi is None and create should
         return a numerical file handle.
@@ -97,9 +105,10 @@ class MAVFTP(LoggingMixIn, Operations):
         When raw_fi is True the file handle should be set directly by create
         and return 0.
         '''
-        logger.error(f"Fuse: create {path}")
+        logger.info(f"Fuse: create {path}, fi={fi}")
         self.ftp.create_file(path)
-        raise FuseOSError(errno.EROFS)
+        logger.info(f"Fuse: created")
+        return 0
 
 
     def mknod(self, path):
@@ -107,8 +116,11 @@ class MAVFTP(LoggingMixIn, Operations):
         raise FuseOSError(errno.ENOENT)
 
     def write(self, path, data, offset, fh):
-        logger.error(f"Fuse: write {path}")
-        raise FuseOSError(errno.EROFS)
+        self.ensure_file_exists(path)
+        self.ftp.open_wo(path)
+        logger.info(f"Fuse: write {path}, offset={offset}, fh={fh}, data={len(data)}")
+        return self.ftp.write_file(path, offset, data, fh)
+
 
     def mkdir(self, path, mode):
         logger.error(f"Fuse: mkdir {path}")
@@ -134,6 +146,9 @@ class MAVFTP(LoggingMixIn, Operations):
         logger.error(f"Fuse: chown {path}")
         raise FuseOSError(errno.EROFS)
 
+    def truncate(self, path, other):
+        logger.info(f"Fuse: truncate {path}")
+        return self.create(path)
 
 if __name__ == "__main__":
     # logging.basicConfig(level=logging.DEBUG)
@@ -162,5 +177,5 @@ if __name__ == "__main__":
         ro=False,
         nothreads=True,
         allow_other=True,
-        # debug=True,
+        debug=True,
     )

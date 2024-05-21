@@ -58,6 +58,7 @@ class MAVFTP(LoggingMixIn, Operations):
 
     def read(self, path, size, offset, fh):
         buf = self.ftp.read_sector(path, offset, size)
+        logger.info(f"read result: {buf}")
         return buf
 
     def readdir(self, path, fh=0):

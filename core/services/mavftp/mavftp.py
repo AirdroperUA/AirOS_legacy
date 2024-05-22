@@ -115,6 +115,7 @@ class ReadHandler:
         self.read_retries = 0
         self.done = False
         self.last_read = None
+        self.backlog = 0
         self.last_burst_read = None
         self.fh = None
         self.temp_filename = "/tmp/mavftp_get_file"
@@ -135,6 +136,7 @@ class ReadHandler:
         logger.info("offset: %s, size: %s" % (self.requested_offset, self.requested_size))
         self.op_start = time.time()
         self.read_retries = 0
+        self.read_total = 0
         self.duplicates = 0
         self.reached_eof = False
         self.burst_size = self.ftp_settings["burst_read_size"]
@@ -148,7 +150,7 @@ class ReadHandler:
         self.ftp.send(op)
         timeout = time.time() + 5
         while not self.done and time.time() < timeout:
-                logger.info("Iteration")
+                #logger.info("Iteration")
                 try:
                     m = self.ftp.mav.recv_match(
                         type="FILE_TRANSFER_PROTOCOL",
@@ -166,8 +168,6 @@ class ReadHandler:
         logger.info(f"loop closed, gaps:{self.read_gaps}, done: {self.done}")
         if len(self.read_gaps) == 0:
             return self.get_result
-        with open(self.temp_filename) as f:
-            return f.read()
         logger.error(f"closed read with {self.read_gaps} gaaps")
         return None
 
@@ -175,7 +175,9 @@ class ReadHandler:
         """handle OP_OpenFileRO reply"""
         if op.opcode == OP_Ack:
             logger.info("file opened successfully")
-            self.fh = open(self.temp_filename, "wb")
+            self.fh = open(self.temp_filename, "rb+")
+            self.fh.truncate(0)
+            self.fh.seek(self.requested_offset)
             read = FTP_OP(self.ftp.seq, self.ftp.session, OP_BurstReadFile, self.burst_size, 0, 0, self.requested_offset, None)
             
             print(read)
@@ -185,6 +187,33 @@ class ReadHandler:
             logger.error("ftp open failed")
             self.ftp.terminate_session()
 
+
+    def handle_reply_read(self, op, m):
+        """handle OP_ReadFile reply"""
+        if self.backlog > 0:
+            self.backlog -= 1
+        if op.opcode == OP_Ack and self.fh is not None:
+            gap = (op.offset, op.size)
+            if gap in self.read_gaps:
+                self.read_gaps.remove(gap)
+                self.read_gap_times.pop(gap)
+                self.write_payload(op)
+                if self.ftp_settings["debug"] > 0:
+                    print("FTP: removed gap", gap, self.reached_eof, len(self.read_gaps))
+                if self.check_read_finished():
+                    return
+            elif op.size < self.burst_size:
+                print("FTP: file size changed to %u" % op.offset + op.size)
+                self.terminate_session()
+            else:
+                self.duplicates += 1
+                if self.ftp_settings["debug"] > 0:
+                    print("FTP: no gap read", gap, len(self.read_gaps))
+        elif op.opcode == OP_Nack:
+            print("Read failed with %u gaps" % len(self.read_gaps), str(op))
+            self.terminate_session()
+        self.check_read_send()
+        
     def handle_burst_read(self, op, m):
         """handle OP_BurstReadFile reply"""
         if self.ftp_settings["pkt_loss_tx"] > 0:
@@ -227,7 +256,6 @@ class ReadHandler:
                     self.duplicates += 1
                     return
                 self.write_payload(op)
-                self.fh.seek(ofs)
                 if self.check_read_finished():
                     logger.info("Read finished")
                     return
@@ -268,11 +296,11 @@ class ReadHandler:
                 if self.read_total >= self.requested_size:
                     self.check_read_finished()
                     return
-                more = self.last_op
+                more = self.ftp.last_op
                 more.offset = op.offset + op.size
                 if self.ftp_settings["debug"] > 0:
                     print("FTP: burst continue at %u %u" % (more.offset, self.fh.tell()))
-                self.send(more)
+                self.ftp.send(more)
         elif op.opcode == OP_Nack:
             ecode = op.payload[0]
             if self.ftp_settings["debug"] > 0:
@@ -304,7 +332,6 @@ class ReadHandler:
 
     def idle_task(self):
         """check for file gaps and lost requests"""
-        logger.info("IDLE")
         now = time.time()
 
         # see if we lost an open reply
@@ -367,20 +394,24 @@ class ReadHandler:
         if len(self.read_gaps) == 0 and (self.reached_eof or self.read_total >= self.requested_size):
             ofs = self.fh.tell()
             dt = time.time() - self.op_start
-            rate = (ofs / dt) / 1024.0
+            rate = (self.read_total / dt) / 1024.0
             logger.info(
                     "Wrote %u/%u bytes to %s in %.2fs %.1fkByte/s"
                     % (self.read_total, self.requested_size, self.filename, dt, rate)
                 )
+            logger.info(f"terminating with {self.read_total} out of {self.requested_size} (ofs={ofs})")
+            self.done = True
+
+            self.fh.seek(0)
+            result = self.fh.read()
+            self.get_result = result[self.requested_offset:self.requested_offset + self.requested_size]
+            if len(self.get_result) != self.requested_size:
+                logger.warning(f"expected {self.requested_size}, got {len(self.get_result)}")
+            logger.info(f"read {len(self.get_result)} bytes")
+            self.ftp.terminate_session()
+            
             self.fh.flush()
             self.fh.close()
-            logger.info(f"terminating with {self.read_total} out of {self.requested_size}")
-            self.ftp.terminate_session()
-            self.done = True
-            with open(self.temp_filename, 'rb') as f:
-                result = f.read()
-                self.get_result = result
-                logger.info(self.get_result)
             return True
         return False
 
@@ -389,8 +420,8 @@ class ReadHandler:
         (offset, length) = g
         if self.ftp_settings["debug"] > 0:
             print("Gap read of %u at %u rem=%u blog=%u" % (length, offset, len(self.read_gaps), self.backlog))
-        read = FTP_OP(self.seq, self.session, OP_ReadFile, length, 0, 0, offset, None)
-        self.send(read)
+        read = FTP_OP(self.ftp.seq, self.ftp.session, OP_ReadFile, length, 0, 0, offset, None)
+        self.ftp.send(read)
         self.read_gaps.remove(g)
         self.read_gaps.append(g)
         self.last_gap_send = time.time()
@@ -429,16 +460,20 @@ class ReadHandler:
 
     def write_payload(self, op):
         """write payload from a read op"""
+        current_ofs = self.fh.tell()
+        if op.offset  != current_ofs:
+            logger.warning(f"offset mismatch: {op.offset} != {current_ofs} = {op.offset - current_ofs}")
         self.fh.seek(op.offset)
         self.fh.write(op.payload)
         self.read_total += len(op.payload)
+        logger.info(f"read {len(op.payload)} bytes at {op.offset} total={self.read_total}")
 
 
 class FTPModule:
     def __init__(self, mav):
  
         self.ftp_settings = {
-            "debug": 2,
+            "debug": 1,
             "pkt_loss_tx": 0,
             "pkt_loss_rx": 0,
             "max_backlog": 5,
@@ -583,38 +618,6 @@ class FTPModule:
             self.open_wo_result = True
             
 
-    def handle_reply_read(self, op, m):
-        """handle OP_ReadFile reply"""
-        if self.fh is None or self.filename is None:
-            if self.ftp_settings["debug"] > 0:
-                print("FTP Unexpected read reply")
-                print(op)
-            return
-        if self.backlog > 0:
-            self.backlog -= 1
-        if op.opcode == OP_Ack and self.fh is not None:
-            gap = (op.offset, op.size)
-            if gap in self.read_gaps:
-                self.read_gaps.remove(gap)
-                self.read_gap_times.pop(gap)
-                ofs = self.fh.tell()
-                self.write_payload(op)
-                self.fh.seek(ofs)
-                if self.ftp_settings["debug"] > 0:
-                    print("FTP: removed gap", gap, self.reached_eof, len(self.read_gaps))
-                if self.check_read_finished():
-                    return
-            elif op.size < self.burst_size:
-                print("FTP: file size changed to %u" % op.offset + op.size)
-                self.terminate_session()
-            else:
-                self.duplicates += 1
-                if self.ftp_settings["debug"] > 0:
-                    print("FTP: no gap read", gap, len(self.read_gaps))
-        elif op.opcode == OP_Nack:
-            print("Read failed with %u gaps" % len(self.read_gaps), str(op))
-            self.terminate_session()
-        self.check_read_send()
 
     def cmd_open_wo(self, path):
         enc_fname = bytearray(path, "ascii")

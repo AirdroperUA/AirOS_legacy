@@ -178,5 +178,5 @@ if __name__ == "__main__":
         ro=False,
         nothreads=True,
         allow_other=True,
-        debug=True,
+        #debug=True,
     )

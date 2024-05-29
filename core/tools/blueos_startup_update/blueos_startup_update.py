@@ -444,6 +444,24 @@ def run_command_is_working():
     return True
 
 
+def remove_console():
+    """
+    removes "console=serial0,115200" from cmdline.txt
+    """
+    if not cmdline_file:
+        logger.error("cmdline unknown, aborting console patch")
+        return False
+    cmdline_content = load_file(cmdline_file).strip().split(" ")
+    unpatched_cmdline_content = cmdline_content.copy()
+
+    new_cmdline = " ".join([content for content in cmdline_content if "console=serial" not in content])
+
+    if unpatched_cmdline_content != new_cmdline:
+        save_file(cmdline_file, new_cmdline, "before_remove_console")
+        return True
+    return False
+
+
 def main() -> int:
     start = time.time()
     # check if boot_loop_detector exists
@@ -474,6 +492,7 @@ def main() -> int:
 
     # TODO: parse tag as semver and check before applying patches
     patches_to_apply = [
+        remove_console,
         update_startup,
         ensure_user_data_structure_is_in_place,
         ensure_nginx_permissions,

@@ -510,12 +510,16 @@ def main() -> int:
         update_startup,
         ensure_user_data_structure_is_in_place,
         ensure_nginx_permissions,
-        create_dns_conf_host_link,
     ]
 
     # this will always be pi4 as pi5 is not supported
     if host_os == HostOs.Bullseye:
-        patches_to_apply.extend([update_navigator_overlays])
+        patches_to_apply.extend(
+            [
+                update_navigator_overlays,
+                create_dns_conf_host_link,
+            ]
+        )
 
     if host_cpu == CpuType.PI4 or CpuType.PI5:
         patches_to_apply.extend(

@@ -146,10 +146,15 @@ class ArduPilotManager(metaclass=Singleton):
         self.settings.save(self.configuration)
 
     def get_serials(self) -> List[Serial]:
+        is_pi5 = False
+        with open("/proc/cpuinfo", "r", encoding="utf-8") as f:
+            if "Raspberry Pi 5" in f.read():
+                is_pi5 = True
+
         # The mapping of serial ports works as in the following table:
         #
         # |    ArduSub   |       Navigator         |
-        # | -C = Serial1 | Serial1 => /dev/ttyS0   |
+        # | -C = Serial1 | Serial1 => /dev/ttyAMA0   |
         # | -B = Serial3 | Serial3 => /dev/ttyAMA1 |
         # | -E = Serial4 | Serial4 => /dev/ttyAMA2 |
         # | -F = Serial5 | Serial5 => /dev/ttyAMA3 |
@@ -157,12 +162,22 @@ class ArduPilotManager(metaclass=Singleton):
         # The first column comes from https://ardupilot.org/dev/docs/sitl-serial-mapping.html
 
         if "serials" not in self.configuration:
+            if is_pi5:
+                return [
+                    # updated for bookworm/pi5
+                    Serial(port="C", endpoint="/dev/ttyAMA0"),
+                    Serial(port="B", endpoint="/dev/ttyAMA2"),
+                    Serial(port="E", endpoint="/dev/ttyAMA3"),
+                    Serial(port="F", endpoint="/dev/ttyAMA4"),
+                ]
             return [
+                # updated for bookworm/pi5
                 Serial(port="C", endpoint="/dev/ttyS0"),
-                Serial(port="B", endpoint="/dev/ttyAMA1"),
-                Serial(port="E", endpoint="/dev/ttyAMA2"),
-                Serial(port="F", endpoint="/dev/ttyAMA3"),
+                Serial(port="B", endpoint="/dev/ttyAMA3"),
+                Serial(port="E", endpoint="/dev/ttyAMA4"),
+                Serial(port="F", endpoint="/dev/ttyAMA5"),
             ]
+
         serials = []
         for entry in self.configuration["serials"]:
             try:

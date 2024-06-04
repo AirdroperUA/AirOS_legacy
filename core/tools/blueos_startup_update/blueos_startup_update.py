@@ -9,7 +9,8 @@ import time
 from typing import List, Optional, Tuple
 
 import appdirs
-from commonwealth.utils.commands import run_command
+from boot.pi5overlays import load_pi5_overlays_in_runtime
+from commonwealth.utils.commands import run_command, upload_file
 from commonwealth.utils.logs import InterceptHandler, init_logger
 from loguru import logger
 
@@ -34,6 +35,7 @@ DELTA_JSON = {
             "/usr/blueos/bin": {"bind": "/usr/blueos/bin", "mode": "rw"},
             "/etc/resolv.conf.host": {"bind": "/etc/resolv.conf.host", "mode": "ro"},
             "/home/pi/.ssh": {"bind": "/home/pi/.ssh", "mode": "rw"},
+            "/var/run/dbus": {"bind": "/var/run/dbus", "mode": "rw"},
         }
     }
 }
@@ -193,10 +195,8 @@ def load_file(file_name) -> str:
 
 def save_file(file_name: str, file_content: str, backup_identifier: str) -> None:
     command = f'sudo cp "{file_name}" "{file_name}.{backup_identifier}.bak"'
-    run_command(command, False)
-
-    command = f'echo "{file_content}" | sudo tee "{file_name}"'
-    run_command(command, False)
+    logger.info(run_command(command, False))
+    upload_file(file_content, file_name, False)
 
 
 def hardlink_exists(file_name: str) -> bool:
@@ -437,12 +437,44 @@ def ensure_user_data_structure_is_in_place() -> bool:
     return False
 
 
+def build_led_overlay():
+    overlay_exists = locate_file(["/boot/overlays/spi0-led.dtbo", "/boot/firmware/overlays/spi0-led.dtbo"])
+    if overlay_exists:
+        logger.info(f"spi0-led overlay found at {overlay_exists}")
+        return False
+    with open("/install/spi0-led.dts", "r", encoding="utf-8") as f:
+        dts = f.read()
+        save_file("/tmp/spi0-led.dts", dts, "")
+    command = "sudo dtc -@ -Hepapr -I dts -O dtb -o /boot/overlays/spi0-led.dtbo /tmp/spi0-led.dts && sudo cp /boot/overlays/spi0-led.dtbo /boot/firmware/overlays/spi0-led.dtbo"
+    logger.info(run_command(command, False))
+    # we should be able to load the just-built overlay, no need to restart
+    return False
+
+
 def run_command_is_working():
     output = run_command("uname -a", check=False)
     if output.returncode != 0:
         logger.error(output)
         return False
     return True
+
+
+def remove_console():
+    """
+    removes "console=serial0,115200" from cmdline.txt
+    """
+    if not cmdline_file:
+        logger.error("cmdline unknown, aborting console patch")
+        return False
+    cmdline_content = load_file(cmdline_file).strip().split(" ")
+    unpatched_cmdline_content = cmdline_content.copy()
+
+    new_cmdline = " ".join([content for content in cmdline_content if "console=serial" not in content])
+
+    if unpatched_cmdline_content != new_cmdline:
+        save_file(cmdline_file, new_cmdline, "before_remove_console")
+        return True
+    return False
 
 
 def main() -> int:
@@ -475,21 +507,33 @@ def main() -> int:
 
     # TODO: parse tag as semver and check before applying patches
     patches_to_apply = [
+        remove_console,
         update_startup,
         ensure_user_data_structure_is_in_place,
         ensure_nginx_permissions,
-        create_dns_conf_host_link,
     ]
 
     # this will always be pi4 as pi5 is not supported
     if host_os == HostOs.Bullseye:
-        patches_to_apply.extend([update_navigator_overlays])
+        patches_to_apply.extend(
+            [
+                update_navigator_overlays,
+                create_dns_conf_host_link,
+            ]
+        )
 
     if host_cpu == CpuType.PI4 or CpuType.PI5:
         patches_to_apply.extend(
             [
+                build_led_overlay,
                 update_cgroups,
                 update_dwc2,
+            ]
+        )
+    if host_cpu == CpuType.PI5:
+        patches_to_apply.extend(
+            [
+                load_pi5_overlays_in_runtime,
             ]
         )
 

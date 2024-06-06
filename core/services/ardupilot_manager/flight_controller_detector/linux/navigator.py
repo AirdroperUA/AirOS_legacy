@@ -17,6 +17,11 @@ class Navigator(LinuxFlightController):
     manufacturer = "Blue Robotics"
     platform = Platform.Navigator
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Navigator):
+            return False
+        return other.name == self.name
+
     def is_pi5(self) -> bool:
         is_pi5 = False
         with open("/proc/cpuinfo", "r", encoding="utf-8") as f:

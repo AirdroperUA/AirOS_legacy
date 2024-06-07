@@ -282,9 +282,10 @@ export default Vue.extend({
       for (const barometer of this.baros) {
         if (!this.is_water_baro[barometer.param]) {
           results[barometer.param] = 'Barometric'
+        } else {
+          const spec_gravity_param = autopilot_data.parameter('BARO_SPEC_GRAV')
+          results[barometer.param] = printParam(spec_gravity_param)
         }
-        const spec_gravity_param = autopilot_data.parameter('BARO_SPEC_GRAV')
-        results[barometer.param] = printParam(spec_gravity_param)
       }
       return results
     },

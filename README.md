@@ -1,4 +1,5 @@
-# BlueOS
+# AirOS - a flight controller operating system for aircraft
+### Airdroper AirOS is a next-generation flight controller software
 
 [![Test, Build and Deploy Images](https://github.com/bluerobotics/BlueOS/actions/workflows/test-and-deploy.yml/badge.svg)](https://github.com/bluerobotics/BlueOS/actions/workflows/test-and-deploy.yml)
 ![Downloads](https://img.shields.io/github/downloads/bluerobotics/blueos/total?label=Downloads)
@@ -14,7 +15,7 @@
 ![Pulls](https://img.shields.io/docker/pulls/bluerobotics/blueos-core?label=Pulls)
 ![Size](https://img.shields.io/docker/image-size/bluerobotics/blueos-core?label=Size)](https://hub.docker.com/r/bluerobotics/blueos-core/tags)
 
-BlueOS is a modular, robust, and efficient platform for managing a vehicle or robot from its [onboard computer](https://blueos.cloud/docs/hardware/required/onboard-computer/). It is the evolution of the Companion project, which aimed to route a vehicle's video stream and communications to its [control station computer](https://blueos.cloud/docs/hardware/required/control-computer/). Recognizing the need for a more sophisticated and scalable system, BlueOS was created from the ground up, embracing modularity to ensure portability, robust updating, and extensibility.
+AirOS is a modular, robust, and efficient platform for managing a vehicle or robot from its [onboard computer](https://blueos.cloud/docs/hardware/required/onboard-computer/). It is the evolution of the Companion project, which aimed to route a vehicle's video stream and communications to its [control station computer](https://blueos.cloud/docs/hardware/required/control-computer/). Recognizing the need for a more sophisticated and scalable system, AirOS was created from the ground up, embracing modularity to ensure portability, robust updating, and extensibility.
 
 <p align="center">
   <a href="doc/dashboard.png">
@@ -31,7 +32,7 @@ BlueOS is a modular, robust, and efficient platform for managing a vehicle or ro
 
 ## Principles and Goals 📖
 
-The development of BlueOS is driven by the following core principles:
+The development of AirOS is driven by the following core principles:
 
 * An interface that is **simple by default but powerful when needed** - the user has the power to change anything they desire and customize the full experience
 * **Designed to focus on what matters**, improving user access to information and controls with a human-friendly UI and UX
@@ -42,11 +43,11 @@ The development of BlueOS is driven by the following core principles:
 * **Highly functional with low CPU usage**, the entire system is built to run efficiently
 * **Developed on solid foundations**, critical parts or intensive workforce services are designed using the most advanced languages and features available for stability
 
-The design, organization, and future releases of BlueOS are aligned with these principles, striving to provide an optimized and enriched user experience.
+The design, organization, and future releases of AirOS are aligned with these principles, striving to provide an optimized and enriched user experience.
 
 ## Release Types ✨
 
-BlueOS is available in three release types:
+AirOS is available in three release types:
 
 - **Stable:** Officially tested and validated versions with long-term support. Recommended for most users.
 - **Beta:** Lightly tested rolling releases with new features, bug fixes, and improvements.
@@ -54,11 +55,11 @@ BlueOS is available in three release types:
 
 ## Vehicle Support 🛸
 
-BlueOS has been designed with a focus on vehicle and platform agnosticism. Our aim is to facilitate broad compatibility across a wide spectrum of applications. Currently, BlueOS officially supports the following vehicle types:
+AirOS has been designed with a focus on vehicle and platform agnosticism. Our aim is to facilitate broad compatibility across a wide spectrum of applications. Currently, AirOS officially supports the following vehicle types:
 
 ### **Boats (ArduRover)**
 
-ArduRover is an open-source, uncrewed boat platform. Whether you are commanding a leisure boat or a research vessel, BlueOS's compatibility with ArduRover ensures that you can navigate the waters smoothly 🌊.
+ArduRover is an open-source, uncrewed boat platform. Whether you are commanding a leisure boat or a research vessel, AirOS's compatibility with ArduRover ensures that you can navigate the waters smoothly 🌊.
 
 [BlueBoat](https://bluerobotics.com/store/blueboat/blueboat/) is supported by default.
 
@@ -66,7 +67,7 @@ ArduRover is an open-source, uncrewed boat platform. Whether you are commanding 
 
 ### **Submarines (ArduSub)**
 
-ArduSub is the go-to control system for remotely operated underwater vehicles (ROVs) 🐟. BlueOS offers seamless integration with ArduSub, enabling efficient management and operation of underwater vehicles. 
+ArduSub is the go-to control system for remotely operated underwater vehicles (ROVs) 🐟. AirOS offers seamless integration with ArduSub, enabling efficient management and operation of underwater vehicles. 
 
 [BlueROV2](https://bluerobotics.com/store/rov/bluerov2/) is supported out of the box.
 
@@ -74,17 +75,17 @@ ArduSub is the go-to control system for remotely operated underwater vehicles (R
 
 ### **Generic (ArduPilot / PX4)**
 
-BlueOS provides generic support for a wide variety of terrestrial, aerial, and marine uncrewed vehicles that use ArduPilot and PX4 autopilots. This extends the range of vehicles that can be managed using our system, from drones to autonomous cars and more.
+AirOS provides generic support for a wide variety of terrestrial, aerial, and marine uncrewed vehicles that use ArduPilot and PX4 autopilots. This extends the range of vehicles that can be managed using our system, from drones to autonomous cars and more.
 
->**Note:** Specific vehicle configuration may be necessary to ensure optimal performance with BlueOS.
+>**Note:** Specific vehicle configuration may be necessary to ensure optimal performance with AirOS.
 
 ## Supported Architectures 👨🏻‍💻
 
-BlueOS is designed to perform optimally across a wide range of systems. Our latest releases are automatically built for the following architectures:
+AirOS is designed to perform optimally across a wide range of systems. Our latest releases are automatically built for the following architectures:
 
 - **armv7:** This is a common architecture for embedded devices. Covers Raspberry Pi models up to and including the Raspberry Pi 3.
 
-- **armv8/arm64:** This is used by more recent, high-performance devices. You can run BlueOS on a Raspberry Pi 4, or in a computer with Apple Silicon.
+- **armv8/arm64:** This is used by more recent, high-performance devices. You can run AirOS on a Raspberry Pi 4, or in a computer with Apple Silicon.
 
 - **amd64:** This is the architecture used by most desktop and laptop computers. A typical example is any modern PC running a 64-bit version of Linux. **Not fully supported.**
 

@@ -1,5 +1,5 @@
-# AirOS - a flight controller operating system for aircraft
-### Airdroper AirOS is a next-generation flight controller software
+# AirOS - a flight controller operating system
+### Airdroper AirOS is a next-generation aircraft software
 
 [![Test, Build and Deploy Images](https://github.com/bluerobotics/BlueOS/actions/workflows/test-and-deploy.yml/badge.svg)](https://github.com/bluerobotics/BlueOS/actions/workflows/test-and-deploy.yml)
 ![Downloads](https://img.shields.io/github/downloads/bluerobotics/blueos/total?label=Downloads)
@@ -56,6 +56,23 @@ AirOS is available in three release types:
 ## Vehicle Support 🛸
 
 AirOS has been designed with a focus on vehicle and platform agnosticism. Our aim is to facilitate broad compatibility across a wide spectrum of applications. Currently, AirOS officially supports the following vehicle types:
+
+### **Fixed-wing / VTOL (ArduPlane)**
+
+ArduPlane is an open-source, uncrewed aircraft platform. Whether you are commanding a leisure aircraft or a research UAV, AirOS's compatibility with ArduPlane ensures that you can navigate the skies smoothly 🪂.
+
+[FRAME UAV](https://airdroper.org/product/frame/) is supported by default.
+
+![](doc/frame.png)
+
+### **Drone Copters (ArduCopter)**
+
+ArduCopter is an open-source, uncrewed quadcopter platform.
+
+[AGR]([https://bluerobotics.com/store/blueboat/blueboat/](https://multicopter.com.ua/shop/magazin/drony-opriskivateli/agr-q10-2020/)) is supported by default.
+
+![](doc/copter.png)
+
 
 ### **Boats (ArduRover)**
 

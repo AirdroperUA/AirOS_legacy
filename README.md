@@ -63,7 +63,7 @@ ArduPlane is an open-source, uncrewed aircraft platform. Whether you are command
 
 [FRAME UAV](https://airdroper.org/product/frame/) is supported by default.
 
-![](doc/frame.png)
+![](doc/fram.png)
 
 ### **Drone Copters (ArduCopter)**
 
